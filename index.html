@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전사 실적 실시간 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .kpi-card { transition: transform 0.2s; }
+        .kpi-card:hover { transform: translateY(-5px); }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <!-- Sidebar & Main Content Wrapper -->
+    <div class="flex flex-col md:flex-row min-h-screen">
+        <!-- Sidebar -->
+        <aside class="w-full md:w-64 bg-slate-900 text-white p-6">
+            <div class="flex items-center gap-3 mb-10">
+                <div class="bg-blue-600 p-2 rounded-lg">
+                    <i class="fas fa-chart-line text-xl"></i>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight">BI Dashboard</h1>
+            </div>
+            <nav class="space-y-4">
+                <a href="#" class="flex items-center gap-3 text-blue-400 font-medium p-2 rounded bg-slate-800"><i class="fas fa-home w-5"></i> 요약</a>
+                <a href="#" class="flex items-center gap-3 text-slate-400 hover:text-white transition p-2"><i class="fas fa-coins w-5"></i> 재무 분석</a>
+                <a href="#" class="flex items-center gap-3 text-slate-400 hover:text-white transition p-2"><i class="fas fa-boxes w-5"></i> 생산/재고</a>
+                <a href="#" class="flex items-center gap-3 text-slate-400 hover:text-white transition p-2"><i class="fas fa-users w-5"></i> 인사/품질</a>
+            </nav>
+            <div class="mt-auto pt-10 border-t border-slate-800 text-xs text-slate-500">
+                Last Sync: <span id="sync-time">-</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 md:p-10 space-y-8 overflow-x-hidden">
+            <!-- Header -->
+            <header class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">실시간 통합 지표</h2>
+                    <p class="text-slate-500">구글 스프레드시트 기반 자동 업데이트</p>
+                </div>
+                <button onclick="fetchData()" class="bg-white border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm transition flex items-center gap-2">
+                    <i class="fas fa-sync-alt" id="refresh-icon"></i> 새로고침
+                </button>
+            </header>
+
+            <!-- Loading Overlay -->
+            <div id="loading" class="fixed inset-0 bg-white/80 z-50 flex flex-col items-center justify-center hidden">
+                <div class="animate-spin text-blue-600 text-4xl mb-4"><i class="fas fa-spinner"></i></div>
+                <p class="font-medium">데이터를 불러오는 중...</p>
+            </div>
+
+            <!-- KPI Cards Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-blue-50 text-blue-600 rounded-lg"><i class="fas fa-dollar-sign text-lg"></i></div>
+                        <span class="text-xs font-bold text-green-500 bg-green-50 px-2 py-1 rounded">+12.5%</span>
+                    </div>
+                    <p class="text-slate-500 text-sm font-medium">총 매출액</p>
+                    <h3 class="text-2xl font-bold mt-1" id="kpi-sales">0</h3>
+                </div>
+                <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><i class="fas fa-piggy-bank text-lg"></i></div>
+                    </div>
+                    <p class="text-slate-500 text-sm font-medium">총 순이익</p>
+                    <h3 class="text-2xl font-bold mt-1" id="kpi-netprofit">0</h3>
+                </div>
+                <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-amber-50 text-amber-600 rounded-lg"><i class="fas fa-percentage text-lg"></i></div>
+                    </div>
+                    <p class="text-slate-500 text-sm font-medium">평균 원가율</p>
+                    <h3 class="text-2xl font-bold mt-1" id="kpi-costratio">0%</h3>
+                </div>
+                <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-rose-50 text-rose-600 rounded-lg"><i class="fas fa-chart-line text-lg"></i></div>
+                    </div>
+                    <p class="text-slate-500 text-sm font-medium">현재 주가</p>
+                    <h3 class="text-2xl font-bold mt-1" id="kpi-stock">0</h3>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Trend Chart -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <i class="fas fa-chart-area text-blue-500"></i> 매출/수익/순이익 추세
+                    </h4>
+                    <div class="chart-container">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Production vs Inventory -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <i class="fas fa-warehouse text-orange-500"></i> 생산량 vs 재고량 현황
+                    </h4>
+                    <div class="chart-container">
+                        <canvas id="productionChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Cost Distribution -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <i class="fas fa-pie-chart text-purple-500"></i> 주요 비용 지출 구성
+                    </h4>
+                    <div class="chart-container">
+                        <canvas id="costDoughnut"></canvas>
+                    </div>
+                </div>
+
+                <!-- Ad Spend vs Sales Volume (Correlation) -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <i class="fas fa-bullhorn text-rose-500"></i> 광고비 대비 판매량 추이
+                    </h4>
+                    <div class="chart-container">
+                        <canvas id="adSalesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Table -->
+            <section class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div class="p-6 border-b border-slate-50 flex justify-between items-center">
+                    <h4 class="text-lg font-bold">전체 데이터 상세</h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm border-collapse">
+                        <thead class="bg-slate-50 text-slate-500 font-medium">
+                            <tr>
+                                <th class="p-4 border-b">매출</th>
+                                <th class="p-4 border-b">수익</th>
+                                <th class="p-4 border-b">순이익</th>
+                                <th class="p-4 border-b">판매량</th>
+                                <th class="p-4 border-b">재고량</th>
+                                <th class="p-4 border-b">원가율</th>
+                                <th class="p-4 border-b">품질등급</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-table-body">
+                            <!-- Data rows will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSKj5inq58_7znwvYlp_2KtWo8tX3pnH4dt-K5Fxjx2I6GcntYNxZS8q2Sx-druh3iA_PxjHG_3egxw/pub?output=csv';
+        let charts = {};
+
+        // Helper: Number Formatting
+        const fmt = (num) => new Intl.NumberFormat('ko-KR').format(Math.round(num));
+
+        async function fetchData() {
+            const loading = document.getElementById('loading');
+            const refreshIcon = document.getElementById('refresh-icon');
+            
+            loading.classList.remove('hidden');
+            refreshIcon.classList.add('animate-spin');
+
+            try {
+                // Fetch CSV via Proxy or directly (Google Sheets allows CORS usually)
+                const response = await fetch(SHEET_URL);
+                const csvData = await response.text();
+                
+                const lines = csvData.split(/\r?\n/);
+                const headerIndex = lines.findIndex(line => line.includes('매출'));
+                const validCsvData = headerIndex !== -1 ? lines.slice(headerIndex).join('\n') : csvData;
+
+                Papa.parse(validCsvData, {
+                    header: true,
+                    dynamicTyping: true,
+                    skipEmptyLines: true,
+                    transformHeader: header => header.trim(),
+                    complete: function(results) {
+                        // Filter out empty rows that might just have the first column (e.g. "4차년도 2분기 ,,,,")
+                        const validData = results.data.filter(row => row['매출'] !== null && row['매출'] !== undefined && row['매출'] !== '');
+                        renderDashboard(validData);
+                        loading.classList.add('hidden');
+                        refreshIcon.classList.remove('animate-spin');
+                        document.getElementById('sync-time').innerText = new Date().toLocaleTimeString();
+                    }
+                });
+            } catch (error) {
+                console.error("Fetch Error:", error);
+                loading.classList.add('hidden');
+                refreshIcon.classList.remove('animate-spin');
+                // Simple error notification
+                const errorBox = document.createElement('div');
+                errorBox.className = "fixed bottom-5 right-5 bg-red-600 text-white p-4 rounded-lg shadow-lg z-50";
+                errorBox.innerText = "데이터 로드 실패. 링크를 확인하세요.";
+                document.body.appendChild(errorBox);
+                setTimeout(() => errorBox.remove(), 3000);
+            }
+        }
+
+        function renderDashboard(data) {
+            // 1. KPI Update
+            const totalSales = data.reduce((sum, row) => sum + (row.매출 || 0), 0);
+            const totalNetProfit = data.reduce((sum, row) => sum + (row.순이익 || 0), 0);
+            const avgCostRatio = data.reduce((sum, row) => sum + (row.원가율 || 0), 0) / data.length;
+            const lastStock = data[data.length - 1]?.주가 || 0;
+
+            document.getElementById('kpi-sales').innerText = `₩${fmt(totalSales)}`;
+            document.getElementById('kpi-netprofit').innerText = `₩${fmt(totalNetProfit)}`;
+            document.getElementById('kpi-costratio').innerText = `${avgCostRatio.toFixed(1)}%`;
+            document.getElementById('kpi-stock').innerText = `₩${fmt(lastStock)}`;
+
+            // 2. Table Update
+            const tableBody = document.getElementById('data-table-body');
+            tableBody.innerHTML = '';
+            data.slice(-10).reverse().forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="p-4 border-b font-medium">${fmt(row.매출)}</td>
+                    <td class="p-4 border-b">${fmt(row.수익)}</td>
+                    <td class="p-4 border-b text-blue-600 font-bold">${fmt(row.순이익)}</td>
+                    <td class="p-4 border-b">${fmt(row.판매량)}</td>
+                    <td class="p-4 border-b">${fmt(row.재고량)}</td>
+                    <td class="p-4 border-b">${row.원가율}%</td>
+                    <td class="p-4 border-b">
+                        <span class="px-2 py-1 rounded text-xs font-bold ${row.품질등급 === 'A' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">${row.품질등급 || '-'}</span>
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            // 3. Charts Logic
+            const labels = data.map((_, i) => `${i+1}회차`);
+
+            // Trend Chart
+            updateChart('trendChart', 'line', labels, [
+                { label: '매출', data: data.map(r => r.매출), borderColor: '#3b82f6', tension: 0.3, fill: false },
+                { label: '수익', data: data.map(r => r.수익), borderColor: '#818cf8', tension: 0.3, fill: false },
+                { label: '순이익', data: data.map(r => r.순이익), borderColor: '#10b981', tension: 0.3, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.05)' }
+            ]);
+
+            // Production vs Inventory
+            updateChart('productionChart', 'bar', labels, [
+                { label: '생산량', data: data.map(r => r.생산량), backgroundColor: '#3b82f6', borderRadius: 4 },
+                { label: '재고량', data: data.map(r => r.재고량), backgroundColor: '#f97316', borderRadius: 4 }
+            ]);
+
+            // Cost Doughnut (Average of all rows)
+            const avgAd = data.reduce((s, r) => s + (r.광고비 || 0), 0);
+            const avgLogi = data.reduce((s, r) => s + (r.물류비 || 0), 0);
+            const avgLabor = data.reduce((s, r) => s + (r.인건비 || 0), 0);
+            updateChart('costDoughnut', 'doughnut', ['광고비', '물류비', '인건비'], [
+                { data: [avgAd, avgLogi, avgLabor], backgroundColor: ['#f43f5e', '#8b5cf6', '#0ea5e9'] }
+            ], { cutout: '70%' });
+
+            // Ad Spend vs Sales Volume
+            updateChart('adSalesChart', 'line', labels, [
+                { label: '광고비', data: data.map(r => r.광고비), borderColor: '#e11d48', yAxisID: 'y' },
+                { label: '판매량', data: data.map(r => r.판매량), borderColor: '#0f172a', borderDash: [5, 5], yAxisID: 'y1' }
+            ], {
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left' },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                }
+            });
+        }
+
+        function updateChart(id, type, labels, datasets, extraOptions = {}) {
+            if (charts[id]) charts[id].destroy();
+            const ctx = document.getElementById(id).getContext('2d');
+            charts[id] = new Chart(ctx, {
+                type: type,
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6 } }
+                    },
+                    ...extraOptions
+                }
+            });
+        }
+
+        // Initialize on load
+        window.onload = fetchData;
+    </script>
+</body>
+</html>
